@@ -1,0 +1,377 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import TravelAssistant from '../components/TravelAssistant';
+
+// Mock fetch globally
+global.fetch = jest.fn();
+
+describe('TravelAssistant', () => {
+  beforeEach(() => {
+    fetch.mockClear();
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('Rendering', () => {
+    test('renders the main heading', () => {
+      render(<TravelAssistant />);
+      expect(screen.getByText('Travel Documentation Assistant')).toBeInTheDocument();
+    });
+
+    test('renders input field with correct placeholder', () => {
+      render(<TravelAssistant />);
+      const input = screen.getByTestId('query-input');
+      expect(input).toBeInTheDocument();
+      expect(input).toHaveAttribute('placeholder', 'Ask about travel documentation requirements...');
+    });
+
+    test('renders submit button', () => {
+      render(<TravelAssistant />);
+      const button = screen.getByTestId('submit-button');
+      expect(button).toBeInTheDocument();
+      expect(button).toHaveTextContent('Ask Question');
+    });
+
+    test('does not render response container initially', () => {
+      render(<TravelAssistant />);
+      expect(screen.queryByTestId('response-container')).not.toBeInTheDocument();
+    });
+
+    test('does not render error message initially', () => {
+      render(<TravelAssistant />);
+      expect(screen.queryByTestId('error-message')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('User Interactions', () => {
+    test('updates input value when user types', async () => {
+      const user = userEvent.setup();
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      await user.type(input, 'What documents do I need for Japan?');
+      
+      expect(input).toHaveValue('What documents do I need for Japan?');
+    });
+
+    test('clears error when user starts typing', async () => {
+      const user = userEvent.setup();
+      render(<TravelAssistant />);
+      
+      // First, trigger an error by submitting empty form
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.clear(input);
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+      });
+
+      // Then type in the input to clear the error
+      await user.type(input, 'test');
+      
+      await waitFor(() => {
+        expect(screen.queryByTestId('error-message')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Form Submission', () => {
+    test('shows error when submitting empty form', async () => {
+      const user = userEvent.setup();
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      // Clear the input and submit
+      await user.clear(input);
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+        expect(screen.getByText('Please enter a question')).toBeInTheDocument();
+      });
+    });
+
+    test('shows error when submitting form with only whitespace', async () => {
+      const user = userEvent.setup();
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, '   ');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+        expect(screen.getByText('Please enter a question')).toBeInTheDocument();
+      });
+    });
+
+    test('successfully submits form with valid input', async () => {
+      const user = userEvent.setup();
+      const mockResponse = {
+        answer: 'You need a valid passport and visa for Japan.',
+        model: 'gpt-3.5-turbo'
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      // Check loading state
+      await waitFor(() => {
+        expect(button).toHaveTextContent('Processing...');
+        expect(button).toBeDisabled();
+      });
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('response-container')).toBeInTheDocument();
+        expect(screen.getByTestId('response-answer')).toHaveTextContent(mockResponse.answer);
+        expect(screen.getByTestId('response-model')).toHaveTextContent(`Generated by ${mockResponse.model}`);
+      });
+
+      // Check that button is enabled again
+      expect(button).toHaveTextContent('Ask Question');
+      expect(button).not.toBeDisabled();
+    });
+
+    test('handles API error response', async () => {
+      const user = userEvent.setup();
+      
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+        expect(screen.getByText('HTTP error! status: 500')).toBeInTheDocument();
+      });
+    });
+
+    test('handles network error', async () => {
+      const user = userEvent.setup();
+      
+      fetch.mockRejectedValueOnce(new Error('Network error'));
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+        expect(screen.getByText('Network error')).toBeInTheDocument();
+      });
+    });
+
+    test('handles invalid response format', async () => {
+      const user = userEvent.setup();
+      
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ invalid: 'response' }),
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+        expect(screen.getByText('Invalid response format')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Response Display', () => {
+    test('displays response correctly', async () => {
+      const user = userEvent.setup();
+      const mockResponse = {
+        answer: 'You need:\n1. Valid passport\n2. Visa\n3. Return ticket',
+        model: 'gpt-3.5-turbo'
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('response-container')).toBeInTheDocument();
+        expect(screen.getByTestId('response-answer')).toHaveTextContent(mockResponse.answer);
+        expect(screen.getByTestId('response-model')).toHaveTextContent(`Generated by ${mockResponse.model}`);
+      });
+    });
+
+    test('clears response when clear button is clicked', async () => {
+      const user = userEvent.setup();
+      const mockResponse = {
+        answer: 'You need a valid passport and visa for Japan.',
+        model: 'gpt-3.5-turbo'
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(screen.getByTestId('response-container')).toBeInTheDocument();
+      });
+
+      const clearButton = screen.getByTestId('clear-button');
+      await user.click(clearButton);
+      
+      expect(screen.queryByTestId('response-container')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('API Integration', () => {
+    test('calls correct API endpoint with correct data', async () => {
+      const user = userEvent.setup();
+      const mockResponse = {
+        answer: 'You need a valid passport and visa for Japan.',
+        model: 'gpt-3.5-turbo'
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith('http://localhost:8000/api/ask', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ question: 'What documents do I need for Japan?' }),
+        });
+      });
+    });
+
+    test('trims whitespace from input before sending', async () => {
+      const user = userEvent.setup();
+      const mockResponse = {
+        answer: 'You need a valid passport and visa for Japan.',
+        model: 'gpt-3.5-turbo'
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, '  What documents do I need for Japan?  ');
+      await user.click(button);
+      
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith('http://localhost:8000/api/ask', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ question: 'What documents do I need for Japan?' }),
+        });
+      });
+    });
+  });
+
+  describe('Loading States', () => {
+    test('shows loading state during API call', async () => {
+      const user = userEvent.setup();
+      
+      // Create a promise that we can control
+      let resolvePromise;
+      const promise = new Promise((resolve) => {
+        resolvePromise = resolve;
+      });
+      
+      fetch.mockReturnValueOnce(promise);
+
+      render(<TravelAssistant />);
+      
+      const input = screen.getByTestId('query-input');
+      const button = screen.getByTestId('submit-button');
+      
+      await user.type(input, 'What documents do I need for Japan?');
+      await user.click(button);
+      
+      // Check loading state
+      expect(button).toHaveTextContent('Processing...');
+      expect(button).toBeDisabled();
+      
+      // Resolve the promise
+      resolvePromise({
+        ok: true,
+        json: async () => ({ answer: 'Test response', model: 'gpt-3.5-turbo' }),
+      });
+      
+      await waitFor(() => {
+        expect(button).toHaveTextContent('Ask Question');
+        expect(button).not.toBeDisabled();
+      });
+    });
+  });
+});
