@@ -67,7 +67,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=0.21.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-    { name = "python-dotenv", specifier = "==1.0.0" },
+    { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "python-multipart", specifier = "==0.0.26" },
     { name = "uvicorn", specifier = "==0.24.0" },
 ]
